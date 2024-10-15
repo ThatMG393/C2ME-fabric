@@ -29,6 +29,9 @@ public class MixinOctavePerlinNoiseSampler {
     @Unique
     private double[] amplitudesArray = null;
 
+    // Fixed-point arithmetic
+    private final long precisionFactor = 1 << 24;  // Equivalent to 16777216
+
     @Inject(method = "<init>", at = @At("RETURN"))
     private void onInit(CallbackInfo ci) {
         this.octaveSamplersCount = this.octaveSamplers.length;
@@ -41,7 +44,7 @@ public class MixinOctavePerlinNoiseSampler {
      */
     @Overwrite
     public static double maintainPrecision(double value) {
-        return value - Math.floor(value / 3.3554432E7 + 0.5) * 3.3554432E7;
+        return value - (((value + (precisionFactor >> 1)) >> 24) << 24);
     }
 
     /**
@@ -50,25 +53,24 @@ public class MixinOctavePerlinNoiseSampler {
      */
     @Overwrite
     public double sample(double x, double y, double z) {
-        double d = 0.0;
-        double e = this.lacunarity;
-        double f = this.persistence;
+        long d = 0;
+        long e = (long) (this.lacunarity * precisionFactor); // Scale lacunarity to fixed-point
+        long f = (long) (this.persistence * precisionFactor); // Scale persistence to fixed-point
 
-        for(int i = 0; i < this.octaveSamplersCount; ++i) {
+        for (int i = 0; i < this.octaveSamplersCount; ++i) {
             PerlinNoiseSampler perlinNoiseSampler = this.octaveSamplers[i];
             if (perlinNoiseSampler != null) {
-                @SuppressWarnings("deprecation")
-                double g = perlinNoiseSampler.sample(
-                        maintainPrecision(x * e), maintainPrecision(y * e), maintainPrecision(z * e), 0.0, 0.0
+                long g = perlinNoiseSampler.sample(
+                        maintainPrecisionFixed(x * e), maintainPrecisionFixed(y * e), maintainPrecisionFixed(z * e), 0, 0
                 );
-                d += this.amplitudesArray[i] * g * f;
+                // Convert back to double for the final sum
+                d += (this.amplitudesArray[i] * g * f) >> 24; // Scale down to get the correct precision
             }
 
-            e *= 2.0;
-            f /= 2.0;
+            e <<= 1; // Double e by shifting left (equivalent to multiplying by 2.0)
+            f >>= 1; // Halve f by shifting right (equivalent to dividing by 2.0)
         }
 
-        return d;
+        return (double) (d >> 48);
     }
-
 }
