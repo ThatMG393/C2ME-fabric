@@ -7,5 +7,6 @@ public class C2MEBaseMod implements PreLaunchEntrypoint {
     @Override
     public void onPreLaunch() {
         ConfigSystem.flushConfig();
+        System.out.println("Fixed-point arithmetic is underrated");
     }
 }
