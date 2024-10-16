@@ -16,102 +16,96 @@ public abstract class MixinPerlinNoiseSampler {
     @Shadow @Final private byte[] permutation;
 
     @Unique
-    private static final double[] FLAT_SIMPLEX_GRAD = new double[]{
-            1, 1, 0, 0,
-            -1, 1, 0, 0,
-            1, -1, 0, 0,
-            -1, -1, 0, 0,
-            1, 0, 1, 0,
-            -1, 0, 1, 0,
-            1, 0, -1, 0,
-            -1, 0, -1, 0,
-            0, 1, 1, 0,
-            0, -1, 1, 0,
-            0, 1, -1, 0,
-            0, -1, -1, 0,
-            1, 1, 0, 0,
-            0, -1, 1, 0,
-            -1, 1, 0, 0,
-            0, -1, -1, 0,
+    private static final int[] FLAT_SIMPLEX_GRAD = new int[]{
+            65536, 65536, 0, 0,
+            -65536, 65536, 0, 0,
+            65536, -65536, 0, 0,
+            -65536, -65536, 0, 0,
+            65536, 0, 65536, 0,
+            -65536, 0, 65536, 0,
+            65536, 0, -65536, 0,
+            -65536, 0, -65536, 0,
+            0, 65536, 65536, 0,
+            0, -65536, 65536, 0,
+            0, 65536, -65536, 0,
+            0, -65536, -65536, 0,
+            65536, 65536, 0, 0,
+            0, -65536, 65536, 0,
+            -65536, 65536, 0, 0,
+            0, -65536, -65536, 0,
     };
 
-    private static final int FIXED_POINT_FACTOR = 1 << 16;
-
-    private static int toFixedPoint(double value) {
-        return (int) (value * FIXED_POINT_FACTOR);
-    }
-
-    private int fade(int t) {
-        return ((t * ((t * t) >> 16) * (toFixedPoint(6.0) - toFixedPoint(15.0))) >> 16) + toFixedPoint(10.0);
-    }
+    @Unique
+    private static final int FIXED_POINT_SCALE = 65536; // 2^16
 
     @Deprecated
     @Overwrite
     public double sample(double x, double y, double z, double yScale, double yMax) {
-        int fixedX = toFixedPoint(x + this.originX);
-        int fixedY = toFixedPoint(y + this.originY);
-        int fixedZ = toFixedPoint(z + this.originZ);
+        int fixedX = (int) ((x + this.originX) * FIXED_POINT_SCALE);
+        int fixedY = (int) ((y + this.originY) * FIXED_POINT_SCALE);
+        int fixedZ = (int) ((z + this.originZ) * FIXED_POINT_SCALE);
+        int sectionX = fixedX >> 16;
+        int sectionY = fixedY >> 16;
+        int sectionZ = fixedZ >> 16;
+        int localX = fixedX & (FIXED_POINT_SCALE - 1);
+        int localY = fixedY & (FIXED_POINT_SCALE - 1);
+        int localZ = fixedZ & (FIXED_POINT_SCALE - 1);
+        int fixedYScale = 0;
+        if (yScale != 0.0) {
+            int fixedYScaleTemp = (int)(yScale * FIXED_POINT_SCALE);
+            int fixedYMax = (yMax >= 0.0 && yMax < (double)localY / FIXED_POINT_SCALE) 
+                ? (int)(yMax * FIXED_POINT_SCALE) 
+                : localY;
+            long scaledY = ((long)fixedYMax << 32) / fixedYScaleTemp;
+            fixedYScale = (int)(((scaledY + FIXED_POINT_SCALE) * fixedYScaleTemp) >> 32);
+        }
 
-        int i = fixedX >> 16;
-        int j = fixedY >> 16;
-        int k = fixedZ >> 16;
-
-        int g = fixedX & 0xFFFF;
-        int h = fixedY & 0xFFFF;
-
-        int o = (yScale != 0.0)
-                ? ((yMax >= 0.0 && yMax < (h / (double) FIXED_POINT_FACTOR)) ? toFixedPoint(yMax) : h)
-                : 0;
-
-        return (double) sample(i, j, k, g, h - o, fixedZ & 0xFFFF, h);
+        return (double) this.sample(sectionX, sectionY, sectionZ, localX, localY - fixedYScale, localZ, localY) / (FIXED_POINT_SCALE * FIXED_POINT_SCALE);
     }
-    
+
     @Overwrite
-    private double sample(int sectionX, int sectionY, int sectionZ, int localX, int localY, int localZ, int fadeLocalX) {
-        final int var0 = sectionX & 0xFF;
-        final int var1 = (sectionX + 1) & 0xFF;
-        final int var2 = this.permutation[var0] & 0xFF;
-        final int var3 = this.permutation[var1] & 0xFF;
-        final int var4 = (var2 + sectionY) & 0xFF;
-        final int var5 = (var3 + sectionY) & 0xFF;
-        final int var6 = (var2 + sectionY + 1) & 0xFF;
-        final int var7 = (var3 + sectionY + 1) & 0xFF;
+    private int sample(int sectionX, int sectionY, int sectionZ, int localX, int localY, int localZ, int fadeLocalY) {
+        int hash1 = this.permutation[sectionX & 0xFF] & 0xFF;
+        int hash2 = this.permutation[(sectionX + 1) & 0xFF] & 0xFF;
+        int hash3 = this.permutation[(hash1 + sectionY) & 0xFF] & 0xFF;
+        int hash4 = this.permutation[(hash2 + sectionY) & 0xFF] & 0xFF;
+        int hash5 = this.permutation[(hash1 + sectionY + 1) & 0xFF] & 0xFF;
+        int hash6 = this.permutation[(hash2 + sectionY + 1) & 0xFF] & 0xFF;
 
-        final int var8 = this.permutation[var4] & 0xFF;
-        final int var9 = this.permutation[var5] & 0xFF;
-        final int var10 = this.permutation[var6] & 0xFF;
-        final int var11 = this.permutation[var7] & 0xFF;
-        final int var12 = (var8 + sectionZ) & 0xFF;
-        final int var13 = (var9 + sectionZ) & 0xFF;
-        final int var14 = (var10 + sectionZ) & 0xFF;
-        final int var15 = (var11 + sectionZ) & 0xFF;
+        int grad000 = this.permutation[(hash3 + sectionZ) & 0xFF] & 15;
+        int grad100 = this.permutation[(hash4 + sectionZ) & 0xFF] & 15;
+        int grad010 = this.permutation[(hash5 + sectionZ) & 0xFF] & 15;
+        int grad110 = this.permutation[(hash6 + sectionZ) & 0xFF] & 15;
+        int grad001 = this.permutation[(hash3 + sectionZ + 1) & 0xFF] & 15;
+        int grad101 = this.permutation[(hash4 + sectionZ + 1) & 0xFF] & 15;
+        int grad011 = this.permutation[(hash5 + sectionZ + 1) & 0xFF] & 15;
+        int grad111 = this.permutation[(hash6 + sectionZ + 1) & 0xFF] & 15;
 
-        final int var16 = (this.permutation[var12] & 15) << 2;
-        final int var17 = (this.permutation[var13] & 15) << 2;
-        final int var18 = (this.permutation[var14] & 15) << 2;
-        final int var19 = (this.permutation[var15] & 15) << 2;
+        int inverseLocalX = FIXED_POINT_SCALE - localX;
+        int inverseLocalY = FIXED_POINT_SCALE - localY;
+        int inverseLocalZ = FIXED_POINT_SCALE - localZ;
 
-        // Compute gradients
-        final double grad0 = dotGrad(var16, localX, localY, localZ);
-        final double grad1 = dotGrad(var17, localX - FIXED_POINT_FACTOR, localY, localZ);
-        final double grad2 = dotGrad(var18, localX, localY - FIXED_POINT_FACTOR, localZ);
-        final double grad3 = dotGrad(var19, localX - FIXED_POINT_FACTOR, localY - FIXED_POINT_FACTOR, localZ);
+        int noise000 = (FLAT_SIMPLEX_GRAD[grad000 << 2] * localX + FLAT_SIMPLEX_GRAD[(grad000 << 2) | 1] * localY + FLAT_SIMPLEX_GRAD[(grad000 << 2) | 2] * localZ) >> 16;
+        int noise100 = (FLAT_SIMPLEX_GRAD[grad100 << 2] * inverseLocalX + FLAT_SIMPLEX_GRAD[(grad100 << 2) | 1] * localY + FLAT_SIMPLEX_GRAD[(grad100 << 2) | 2] * localZ) >> 16;
+        int noise010 = (FLAT_SIMPLEX_GRAD[grad010 << 2] * localX + FLAT_SIMPLEX_GRAD[(grad010 << 2) | 1] * inverseLocalY + FLAT_SIMPLEX_GRAD[(grad010 << 2) | 2] * localZ) >> 16;
+        int noise110 = (FLAT_SIMPLEX_GRAD[grad110 << 2] * inverseLocalX + FLAT_SIMPLEX_GRAD[(grad110 << 2) | 1] * inverseLocalY + FLAT_SIMPLEX_GRAD[(grad110 << 2) | 2] * localZ) >> 16;
+        int noise001 = (FLAT_SIMPLEX_GRAD[grad001 << 2] * localX + FLAT_SIMPLEX_GRAD[(grad001 << 2) | 1] * localY + FLAT_SIMPLEX_GRAD[(grad001 << 2) | 2] * inverseLocalZ) >> 16;
+        int noise101 = (FLAT_SIMPLEX_GRAD[grad101 << 2] * inverseLocalX + FLAT_SIMPLEX_GRAD[(grad101 << 2) | 1] * localY + FLAT_SIMPLEX_GRAD[(grad101 << 2) | 2] * inverseLocalZ) >> 16;
+        int noise011 = (FLAT_SIMPLEX_GRAD[grad011 << 2] * localX + FLAT_SIMPLEX_GRAD[(grad011 << 2) | 1] * inverseLocalY + FLAT_SIMPLEX_GRAD[(grad011 << 2) | 2] * inverseLocalZ) >> 16;
+        int noise111 = (FLAT_SIMPLEX_GRAD[grad111 << 2] * inverseLocalX + FLAT_SIMPLEX_GRAD[(grad111 << 2) | 1] * inverseLocalY + FLAT_SIMPLEX_GRAD[(grad111 << 2) | 2] * inverseLocalZ) >> 16;
 
-        // Fade calculations
-        final int fadeX = fade(localX);
-        final int fadeY = fade(localY);
-        final int fadeZ = fade(localZ);
+        int fadeX = (localX * localX * localX * (localX * (localX * 6 - 15 * FIXED_POINT_SCALE) + 10 * FIXED_POINT_SCALE)) >> 32;
+        int fadeY = (fadeLocalY * fadeLocalY * fadeLocalY * (fadeLocalY * (fadeLocalY * 6 - 15 * FIXED_POINT_SCALE) + 10 * FIXED_POINT_SCALE)) >> 32;
+        int fadeZ = (localZ * localZ * localZ * (localZ * (localZ * 6 - 15 * FIXED_POINT_SCALE) + 10 * FIXED_POINT_SCALE)) >> 32;
 
-        // Interpolation
-        double v0 = grad0 + ((fadeX * (grad1 - grad0)) >> 16);
-        double v1 = grad2 + ((fadeX * (grad3 - grad2)) >> 16);
-        return v0 + ((fadeZ * (v1 - v0)) >> 16);
-    }
+        int lerp00 = noise000 + (((long)(noise100 - noise000) * fadeX) >> 16);
+        int lerp10 = noise010 + (((long)(noise110 - noise010) * fadeX) >> 16);
+        int lerp01 = noise001 + (((long)(noise101 - noise001) * fadeX) >> 16);
+        int lerp11 = noise011 + (((long)(noise111 - noise011) * fadeX) >> 16);
 
-    // Gradient calculation
-    private static double dotGrad(int gradIndex, int x, int y, int z) {
-        return FLAT_SIMPLEX_GRAD[gradIndex] * x
-                + FLAT_SIMPLEX_GRAD[gradIndex + 1] * y
-                + FLAT_SIMPLEX_GRAD[gradIndex + 2] * z;
+        int lerpX0 = lerp00 + (((long)(lerp10 - lerp00) * fadeY) >> 16);
+        int lerpX1 = lerp01 + (((long)(lerp11 - lerp01) * fadeY) >> 16);
+
+        return lerpX0 + (((long)(lerpX1 - lerpX0) * fadeZ) >> 16);
     }
 }
