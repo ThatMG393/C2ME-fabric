@@ -16,61 +16,69 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 public class MixinOctavePerlinNoiseSampler {
 
     @Shadow @Final private double lacunarity;
-
     @Shadow @Final private double persistence;
-
     @Shadow @Final private PerlinNoiseSampler[] octaveSamplers;
-
     @Shadow @Final private DoubleList amplitudes;
 
-    @Unique
-    private int octaveSamplersCount = 0;
-
-    @Unique
-    private double[] amplitudesArray = null;
-
-    // Fixed-point arithmetic
-    private final long precisionFactor = 1 << 24;  // Equivalent to 16777216
+    @Unique private static final long FIXED_POINT_SCALE = 1L << 24; // 2^24
+    @Unique private static final long MODULUS = 562683007180800L; // 3.3554432E7 * FIXED_POINT_SCALE
+    @Unique private int octaveSamplersCount = 0;
+    @Unique private int[] fixedAmplitudes = null;
+    @Unique private long fixedLacunarity; // Changed to long
+    @Unique private long fixedPersistence; // Changed to long
 
     @Inject(method = "<init>", at = @At("RETURN"))
     private void onInit(CallbackInfo ci) {
         this.octaveSamplersCount = this.octaveSamplers.length;
-        this.amplitudesArray = this.amplitudes.toDoubleArray();
+        this.fixedLacunarity = (long) (this.lacunarity * FIXED_POINT_SCALE);
+        this.fixedPersistence = (long) (this.persistence * FIXED_POINT_SCALE);
+
+        this.fixedAmplitudes = new int[this.octaveSamplersCount];
+        for (int i = 0; i < this.octaveSamplersCount; ++i)
+            this.fixedAmplitudes[i] = (int) (this.amplitudes.getDouble(i) * FIXED_POINT_SCALE);
     }
 
     /**
      * @author ishland
-     * @reason remove frequent type conversion
+     * @reason optimize using fixed-point arithmetic
      */
     @Overwrite
     public static double maintainPrecision(double value) {
-        return value - (((value + (precisionFactor >> 1)) >> 24) << 24);
+        long fixedValue = (long) (value * FIXED_POINT_SCALE);
+        fixedValue = fixedValue - (fixedValue / MODULUS + (fixedValue >= 0 ? 1 : -1) >> 1) * MODULUS; 
+        return (double) fixedValue >> 24; // Use right shift instead of division for final return
     }
 
     /**
      * @author ishland
-     * @reason optimize for common cases
+     * @reason optimize using fixed-point arithmetic
      */
     @Overwrite
     public double sample(double x, double y, double z) {
-        long d = 0;
-        long e = (long) (this.lacunarity * precisionFactor); // Scale lacunarity to fixed-point
-        long f = (long) (this.persistence * precisionFactor); // Scale persistence to fixed-point
+        long fixedResult = 0;
+        long fixedE = this.fixedLacunarity; // Keep as long to avoid overflow.
+        long fixedF = this.fixedPersistence; // Keep as long to avoid overflow.
 
         for (int i = 0; i < this.octaveSamplersCount; ++i) {
             PerlinNoiseSampler perlinNoiseSampler = this.octaveSamplers[i];
             if (perlinNoiseSampler != null) {
-                long g = perlinNoiseSampler.sample(
-                        maintainPrecisionFixed(x * e), maintainPrecisionFixed(y * e), maintainPrecisionFixed(z * e), 0, 0
-                );
-                // Convert back to double for the final sum
-                d += (this.amplitudesArray[i] * g * f) >> 24; // Scale down to get the correct precision
+                // Replace division by FIXED_POINT_SCALE with bitwise shift
+                double maintainedX = maintainPrecision(x * (fixedE >> 24)); // Right shift to divide by FIXED_POINT_SCALE
+                double maintainedY = maintainPrecision(y * (fixedE >> 24));
+                double maintainedZ = maintainPrecision(z * (fixedE >> 24));
+                
+                @SuppressWarnings("deprecation")
+                double g = perlinNoiseSampler.sample(maintainedX, maintainedY, maintainedZ, 0.0, 0.0);
+                
+                // Calculate the fixed result using left shift for multiplying
+                fixedResult += (long) g * this.fixedAmplitudes[i] * (fixedF >> 24); // Right shift to divide by FIXED_POINT_SCALE
             }
 
-            e <<= 1; // Double e by shifting left (equivalent to multiplying by 2.0)
-            f >>= 1; // Halve f by shifting right (equivalent to dividing by 2.0)
+            // Use bitwise shifts for fixedE and fixedF where appropriate.
+            fixedE <<= 1;  // fixedE *= 2 (equivalent to a left shift)
+            fixedF >>= 1;  // fixedF /= 2 (equivalent to a right shift)
         }
 
-        return (double) (d >> 48);
+        return (double) fixedResult >> 24; // Use right shift instead of division for final return
     }
 }
