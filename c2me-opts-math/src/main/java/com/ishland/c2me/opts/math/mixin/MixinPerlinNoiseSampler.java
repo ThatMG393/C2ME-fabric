@@ -44,7 +44,7 @@ public abstract class MixinPerlinNoiseSampler {
 
     // Fade function using fixed-point arithmetic with inlined calculations
     private int fade(int t) {
-        return ((t * ((t * t) >> 16) * (toFixedPoint(6.0) - toFixedPoint(15.0)) >> 16) + toFixedPoint(10.0)) >> 16);
+        return ((t * ((t * t) >> 16) * (toFixedPoint(6.0) - toFixedPoint(15.0))) >> 16) + toFixedPoint(10.0);
     }
 
     /**
@@ -65,8 +65,8 @@ public abstract class MixinPerlinNoiseSampler {
         int h = fixedY & 0xFFFF; // Fractional part of fixedY
 
         // Determine o using fixed-point without division
-        int o = (yScale != 0.0) ? (int) ((yMax >= 0.0 && yMax < (h / (double) FIXED_POINT_FACTOR)) ? toFixedPoint(yMax) : h) / toFixedPoint(yScale) * toFixedPoint(yScale) + 0.5) : 0;
-
+        int o = (yScale != 0.0) ? (int) (((yMax >= 0.0 && yMax < (h / (double) FIXED_POINT_FACTOR)) ? toFixedPoint(yMax) : h) / toFixedPoint(yScale) * toFixedPoint(yScale) + 0.5) : 0;
+        
         return (double) sample(i, j, k, g, h - o, fixedZ & 0xFFFF, h);
     }
 
